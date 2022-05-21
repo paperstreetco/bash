@@ -6,7 +6,7 @@ whoall=$(whois $DOMAIN)
 ## check if domain is registered before continuing, exits the script if not. 
 
     if
-      echo "$whoall"| grep -i -q "No match for domain"
+        echo "$whoall"| grep -i -q "No match for domain"
     then
         echo "DOMAIN NOT REGISTERED!";
     else
