@@ -1,0 +1,17 @@
+## creates a database, database user, and assignes all privileges.
+## generates a randomized password and only takes one input.
+## takes the DB and user name suffix in a read statement.
+
+(
+read -p "db suffix: " sfx
+pfx=$(uapi Mysql get_restrictions|awk '/prefix/ {print $2}')
+name="${pfx}${sfx}"
+pw=$(head /dev/urandom | tr -dc _A-Z-a-z-0-9 | head -c15)
+uapi Mysql create_database name="${name}"
+uapi Mysql create_user name="${name}" password="${pw}"
+uapi Mysql set_privileges_on_database user="${name}" database="${name}" privileges=ALL
+echo "Database and user name: "${name}""
+echo "password: "${pw}""
+)
+
+
