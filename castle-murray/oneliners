@@ -14,4 +14,27 @@ echo "Database and user name: "${name}""
 echo "password: "${pw}""
 )
 
+## checks if email is pointed at IMH server and then checks for DNS validation records 
 
+(
+    read -p "domain? " DOMAIN
+    if whois $(dig +short $(dig +short mx $DOMAIN))| grep -iq inmotion
+    then echo -e "\t\e[38;5;40memail is pointed at InMotion Hosting.\e[0m"
+        if dig +short txt ${DOMAIN} | grep -iq "spf"
+        then echo -e "\t\e[38;5;40mSPF exists\e[0m"
+        else echo -e "\t\e[38;5;196mNO SPF RECORD! \e[0m"
+        fi
+        if dig +short txt  default._domainkey.${DOMAIN} | grep -iq "dkim"
+        then echo -e "\t\e[38;5;40mDKIM exists\e[0m"
+        else echo -e "\t\e[38;5;196mNO DMARC RECORD! \e[0m"
+        fi
+        DMARC=$(dig +short txt  _dmarc.${DOMAIN})
+        if echo "$DMARC" | grep -iq "dmarc"
+        then echo -e "\t\e[38;5;40mDMARC exists\e[0m"
+            if echo "$DMARC" | grep -iq "none"
+                then echo  -e "\t\e[38;5;196mBUT IT\'S SET TO NONE!\e[0m"
+        else echo -e "\t\e[38;5;196mNO DMARC RECORD! \e[0m"
+        fi
+    else echo  -e "\t\e[38;5;196mnot an inmotion email.\e[0m"
+    fi
+)
