@@ -6,7 +6,7 @@ whoall=$(whois $DOMAIN)
 ## check if domain is registered before continuing, exits the script if not. 
 
     if
-        echo "$whoall"| grep -i -q "No match for domain"
+      echo "$whoall"| grep -i -q "No match for domain"
     then
         echo "DOMAIN NOT REGISTERED!";
     else
@@ -32,7 +32,7 @@ echo
 ## I have found that if the whois is showing a different result from dig ns there is a potential issue at the registrar. Therefore it's a good idea to compare them.  
 
 echo "WHOIS NS RESULTS "
-for i in $ns; do echo $i| awk '{print "\t" $0}'; done
+for i in $ns; do echo -e "\t$i"; done
 
 ## this whole section is just to check if the nameservers are custom nameservers on an InMotion Hosting vps/dedi.
     if
@@ -50,10 +50,10 @@ for i in $ns; do echo $i| awk '{print "\t" $0}'; done
         elif
             echo $ns |grep -qiv "inmotion" && echo $orgs |grep -qi "inmotion" ## this is the part that checks for custom nameservers. If the nameserver is not imh but the ip of the ns IS imh. custom nameserver. BOOM.
             then
-            echo "    Custom Nameservers on InMotion Hosting."
+            echo -e "\tCustom Nameservers on InMotion Hosting."
             echo
         else
-            echo "    I have no idea what is going on. Do a proper dig."
+            echo -e "\tI have no idea what is going on. Do a proper dig."
             echo
     fi
     
@@ -62,7 +62,7 @@ echo "DIG NS RESULTS"
 ## dig ns results
 ## same as the whois results really. more reliable though. 
 
-for i in $digns; do echo $i| awk '{print "\t" $0}'; done;
+for i in $digns; do echo -e "\t$i"; done;
 if
     echo $digns |grep -qi "inmotion"
     then
@@ -80,10 +80,10 @@ if
     elif
         echo $digns |grep -qiv "inmotion" && echo $dignsorgs |grep -qi "inmotion"
         then
-        echo "    Custom Nameservers on InMotion Hosting."
+        echo -e "\tCustom Nameservers on InMotion Hosting."
         echo
     else
-        echo "    I have no idea what is going on. Do a proper dig."
+        echo -e "I have no idea what is going on. Do a proper dig."
         echo
 fi
 #Registrar
@@ -104,7 +104,7 @@ echo "InMotion IP?";
             echo -e "\t\e[38;5;196mNO! \e[0m"
     fi
 
-echo "$DOMIP" |awk '{print "\t" $0}'
+echo -e "\t$DOMIP"
     echo
 # This is to detect if there are more than one A records pointed at different locations. 
     for ip in $DOMIP
@@ -134,8 +134,19 @@ echo
 
                             if whois $(dig +short $MXREC)| grep -iq inmotion
                                 then echo -e "\t\e[38;5;40memail is pointed at InMotion Hosting.\e[0m";
-
-## and if it is not an InMotion Hosting IP...
+				if dig +short txt ${DOMAIN} | grep -iq "spf" 
+					then echo -e "\t\e[38;5;40mSPF exists\e[0m"
+					else echo -e "\t\e[38;5;196mNO SPF RECORD! \e[0m"
+				fi
+				if dig +short txt  default._domainkey.${DOMAIN} | grep -iq "dkim"
+					then echo -e "\t\e[38;5;40mDKIM exists\e[0m"
+					else echo -e "\t\e[38;5;196mNO DKIM RECORD! \e[0m"
+				fi
+				if dig +short txt  _dmarc.${DOMAIN} | grep -iq "dmarc"
+					then echo -e "\t\e[38;5;40mDMARC exists\e[0m"
+					else echo -e "\t\e[38;5;196mNO DMARC RECORD! \e[0m"
+				fi
+					## and if it is not an InMotion Hosting IP...
                                 else echo -e "\t\e[38;5;196memail is not pointed at InMotion Hosting.\e[0m";
                             fi;
 
