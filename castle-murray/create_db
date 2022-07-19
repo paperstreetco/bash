@@ -1,0 +1,43 @@
+#!/bin/bash
+
+## Author Sean Murray
+
+create_database() {
+  sfx=$1
+  pfx=$(uapi Mysql get_restrictions|awk '/prefix/ {print $2}')
+  name="${pfx}${sfx}" ## cPanel requires that databases and users start with the cPanel user as a prefix.
+  pw=$(head /dev/urandom | tr -dc _A-Z-a-z-0-9 | head -c15) ## random password. 
+
+
+  cdb_inner() { ## this part had to be a separate function inside the function so i could force its output into /dev/null
+    uapi Mysql create_database name="${name}"
+    uapi Mysql create_user name="${name}" password="${pw}"
+    uapi Mysql set_privileges_on_database user="${name}" database="${name}" privileges=ALL
+  } &> /dev/null
+  ## checks for pre-existing database or user before executing DB/User creation
+if ! uapi Mysql list_databases | grep -iq "${name}"
+  then if ! uapi Mysql list_users | grep -iq "${name}"
+    then cdb_inner
+      echo -e "\n\tDatabase and user name: "${name}""
+      echo -e "\tpassword: '${pw}'\n"
+    else
+      echo -e "\n\tThis user already exists.\n"
+  fi
+
+    else
+      echo -e "\n\tThis database already exists.\n"
+fi
+}
+
+
+case $1 in
+-h|--help|"")
+    echo -e "\n\tPlease include a suffix\n\tExample:\"create_database wp3035\"\n\t -r for a random suffix\n"
+;;
+-r)
+   create_database $(head /dev/urandom | tr -dc a-z-0-9 | head -c6)
+;;
+*)
+   create_database $1
+;;
+esac
