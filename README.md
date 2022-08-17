@@ -29,5 +29,5 @@ For intermediate or advanced scripters please use a _linter_. Our recommendation
 
 Fail hard and fail early for safer scripts. (And code that's easier to develop/maintain over the long run.)
 
-`set -euxo pipefail` near the beginning of your script. Read more about 
-[why you should do this](https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/).
+`set -euo pipefail` near the beginning of your script. Read more about 
+[why you should do this](http://redsymbol.net/articles/unofficial-bash-strict-mode/).
