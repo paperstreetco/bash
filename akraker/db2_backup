@@ -1,0 +1,331 @@
+#!/bin/bash
+
+###############################################################################
+# Create DB2 database backup
+#
+# FILE: /usr/local/sbin/db2_backup
+# LOG_FILE: /var/log/db2_backup.log
+#
+# DESCRIPTION: Copy existing DB2 backups from the backup directory to
+# Google Cloud Storage. If this is successful old local backups are removed
+# before initiating a new local backup of the DB2 database.
+#
+# USAGE: 
+#   db2_backup & tail -f /var/log/db2_backup.log
+#   * Suggest starting a 'screen' session before running manually. 
+#   As a cronjob: /usr/local/sbin/db2_backup
+#
+# REQUIREMENTS: 
+#   - Configure global variables per your environment.
+#     See "GLOBAL VARIABLES" section below.
+#   - Must be run as 'root'
+#   - Google Cloud CLI
+#     See: https://cloud.google.com/sdk/docs/install
+#   - /root/.boto - Google CLI configuration file
+#     - For large backups make sure that 'parallel composite uploads' are
+#       enabled here or Google Cloud Storage uploads will take a long time.
+#       See: https://cloud.google.com/storage/docs/parallel-composite-uploads
+#     - Adjust 'parallel_process_count' and 'parallel_thread_count' per your
+#       environment. For large file uploads, lower thread count is better.
+#       See: https://cloud.google.com/blog/products/gcp/optimizing-your-cloud-storage-performance-google-cloud-performance-atlas
+#   - 'crcmod' required when 'parallel composite uploads' is enabled
+#     - Check if this is available with 'gsutil ver -l'
+#
+# NOTES: 
+#   - This script is designed to run as a daily cronjob. 
+#   - This script creates a PID file and checks if a backup is still running 
+#     before initiating a new backup cycle. 
+#   - Logs to LOG_FILE (see below) by default. 
+#     Run 'tail -f /var/log/db2_backup.log' to see console output.
+#   - The previous day's backup is uploaded to Google Cloud Storage (GS) before 
+#     local backups are removed. Then a new local DB2 backup is taken. 
+#   - No retention period for backups in GS is set here because buckets already 
+#     have a lifecycle policy of 7 days retention wherever this is deployed. 
+#
+# TODO: 
+#   - Implement console output and log-levels
+#     See: https://goodmami.org/2011/07/04/Simple-logging-in-BASH-scripts.html
+#          https://www.ludovicocaldara.net/dba/bash-tips-4-use-logging-levels/
+#   - Trap errors and signals, e.g. Ctrl-C
+#   - Add retention policy
+#   - Perform incremental DB2 backups
+#
+# BUGS: ---
+#
+# Based on the original DB2 'backups_db.sh' script written by Jerome Morignot
+# Written by Alex Kraker (alex.kraker@benimbl.com)
+# Updated by --- 
+#
+# Version 0.1.0 - 2022-08-07
+# Version 0.2.0 - 2022-08-14
+# Version 0.2.1 - 2022-08-16
+# #############################################################################
+
+# Strict mode
+# See: http://redsymbol.net/articles/unofficial-bash-strict-mode/
+set -euo pipefail
+IFS=$'\n\t'
+
+
+
+############################################################
+# GLOBAL VARIABLES
+############################################################
+
+## Configurable global constants 
+# Note: Adjust these to fit your environment
+readonly BACKUP_DIR='/backup'               # Set local backup directory
+readonly GS_BUCKET='gs://sb1-backups'       # Set Google Storage target
+
+# Note: BUP_SEGMENTS must be >= 1.
+#   Google Storage file-size upload limit is 5TiB.
+#   So, ( total backup size / db2 backup segments ) < 5TiB.
+#   3 or 4 is usually good number.
+readonly BUP_SEGMENTS=4                     # Set number of DB2 backup segments
+
+readonly DB_NAME='PSE'                      # Set DB2 database name
+readonly DB2_USER='db2pse'                  # Set DB2 user, e.g 'db2<sid>'
+readonly LOG_RETEN=7                        # Days to retain logs
+
+
+## Global Constants & Environment Variables
+# Warning: don't alter these unless you know what you're doing.
+readonly PID_FILE='/var/run/db2_backup.pid'
+readonly LOG_FILE='/var/log/db2_backup.log'
+export BOTO_CONFIG='/root/.boto'
+
+
+
+############################################################
+# FUNCTIONS
+############################################################
+
+########################################
+# Console and logging output functions.
+# Globals:
+#   None
+# Arguments:
+#   None
+# Outputs:
+#   Writes to STDOUT or STDERR as necessary
+########################################
+timestamp() {
+  date "+%F %T"
+}
+
+err() {
+  echo "$(timestamp) ERROR: $*" >&2
+}
+
+warn() {
+  echo "$(timestamp) WARNING: $*"
+}
+
+inform() {
+  echo "$(timestamp) $*"
+}
+
+########################################
+# Check for existing PID.
+# Exits if existing backup process already running.
+# Otherwise, create new PID file and continue.
+# Note: Adapted from https://www.baeldung.com/linux/pid-file
+# Globals:
+#   PID_FILE
+# Arguments:
+#   None
+# Outputs: 
+#   Writes to STDOUT or STDERR as necessary
+########################################
+pid_check() {
+  if [[ -f "${PID_FILE}" ]]; then
+    warn "Found existing PID file: ${PID_FILE}. Checking..."
+  
+    set +e # Temporarily disable strict exiting
+    pgrep -F "${PID_FILE}" > /dev/null
+    local pid_status=$?
+    set -e
+
+    local pid
+    pid="$(cat "${PID_FILE}")"
+
+    # Check the PID to see if the process exists
+    warn "Check PID ${pid} returned exit status: ${pid_status}"
+    if (( pid_status == 0 )); then
+      err "Backup is still running. Exiting."
+      exit 1
+    elif (( pid_status == 1 )); then
+      warn "PID ${pid} is stale. Removing PID file and continuing..."
+      # Remove stale PID file
+      rm -f "${PID_FILE}"
+      # Create new PID file
+      inform "Creating new PID file..."
+      echo $$ > "${PID_FILE}"
+    else 
+      # This condition should never be reached, but just in case...
+      err "PID check errored. Exiting."
+      exit 1
+    fi
+
+  else 
+    inform "Creating PID file ${PID_FILE} ..."
+    # Create new PID file
+    echo $$ > "${PID_FILE}"
+  fi
+}
+
+cleanup_pid_file() {
+  rm -f "${PID_FILE}"
+}
+
+########################################
+# Upload backups to Google Storage
+# Note: If this operation is taking too long see note 
+# in header about enabling parallel composite uploads.
+# Globals:
+#   BACKUP_DIR
+#   GS_BUCKET
+# Arguments:
+#   None
+########################################
+upload_backup() {
+  /usr/bin/gsutil -q -m rsync -r "${BACKUP_DIR}" "${GS_BUCKET}"
+}
+
+########################################
+# Remove local backup files
+# Globals:
+#   BACKUP_DIR
+#   DB_NAME
+# Arguments:
+#   None
+# Outputs:
+#   Lists files deleted to STDOUT
+########################################
+remove_local_backup() {
+  # Print backup files to be deleted 
+  find "${BACKUP_DIR}" -type f -name "${DB_NAME}.*" -ls
+  # Remove local backup files
+  find "${BACKUP_DIR}" -type f -name "${DB_NAME}.*" -delete
+}
+
+########################################
+# Initiate local db2 backup
+# Globals:
+#   BUP_SEGMENTS
+#   BACKUP_DIR
+#   DB2_USER
+#   DB_NAME
+# Arguments:
+#   None
+########################################
+start_local_backup() {
+  local targets
+  # Set targets to number of BUP_SEGMENTS, e.g. '/backup, /backup, /backup'
+  # This is a bit of a hack, but Bash doesn't have string multiplication...
+  for (( i = 1; i < BUP_SEGMENTS; i++ )); do 
+    targets+="${BACKUP_DIR}, "
+  done
+  targets+="${BACKUP_DIR}"
+
+  # Initiate backup from DB2_USER. 
+  # Note that we use their full environment with 'su -'.
+  su - "${DB2_USER}" \
+     -c "db2 backup database ${DB_NAME} online to ${targets} include logs"
+  # TODO: Add verification check of 'db2' backup success/fail
+}
+
+########################################
+# Quick and dirty truncate file to N lines
+# Note: 'truncate' command deletes tail of files,
+# hence the need for trimming the 'head' of a file.
+# Useful for trimming logs.
+# Globals:
+#   None
+# Arguments:
+#   File to truncate
+#   Number of lines to truncate file to
+########################################
+trim_file() {
+  # TODO: Sanity check that file isn't already in-use
+  # TODO: Sanity check that $1 is a text file
+  # TODO: Sanity check that $2 is a positive integer
+  local tmp_file
+  tmp_file="/tmp/$(basename "$1")"
+
+  cp "$1" "${tmp_file}"
+  tail -"$2" "${tmp_file}" > "$1"
+
+  rm -f "${tmp_file}"
+}
+
+########################################
+# main
+# Utilize control logic and execute primary functions.
+# Globals:
+#   LOG_FILE
+#   DB_NAME
+#   GS_BUCKET
+#   BUP_SEGMENTS
+#   BACKUP_DIR
+# Arguments:
+#   None
+# Outputs: 
+#   Writes to STDOUT and STDERR as necessary
+########################################   
+main() {
+  # Append all output from STDOUT and STDERR to LOG_FILE
+  exec 1>>"${LOG_FILE}" 2>&1
+
+  inform "Starting DB2 backup procedure."
+  # Check for any backups still running...
+  pid_check
+  
+  # Start upload of local backup to Google Storage
+  inform "Initiating upload of ${DB_NAME} database backup to ${GS_BUCKET}."
+  if upload_backup; then
+    inform "Upload successful."
+  
+    # Remove local backup
+    inform "Removing old ${DB_NAME} database backup files:"
+    if remove_local_backup; then
+      inform "Old backup files removed successfully."
+  
+      # Initiate local db2 backup
+      inform "Initiating new local DB2 backup of ${DB_NAME} database."
+      inform "Splitting backup into ${BUP_SEGMENTS} segments."
+      inform "Backup directory target is ${BACKUP_DIR}."
+      if start_local_backup; then
+        inform "Local DB2 backup successful."
+      else
+        err "Local DB2 backup failed. Exiting"
+        exit 1
+      fi
+    else
+      err "Removing old DB2 backup failed. Exiting."
+      exit 1
+    fi
+  else 
+    err "DB2 backup upload failed. Exiting."
+    exit 1
+  fi
+
+  # Trim LOG_FILE (10000 lines should be enough...)
+  trim_file "${LOG_FILE}" 10000
+  
+  # Clean up PID file after we're done
+  cleanup_pid_file
+  
+  inform "DB2 backup procedure completed successfully."
+  inform "Exiting."
+  
+  exit 0 
+}
+
+
+
+############################################################
+# MAIN
+############################################################
+
+main
