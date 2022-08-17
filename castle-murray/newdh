@@ -13,7 +13,7 @@ else
     
     ## more definitions
     
-    ns=$(echo "$whoall"| awk -F ": " '/Name Server/ {print $2}')
+    ns=$(echo "$whoall"| awk -F ": " '/Name Server/ {print $2}'|sort | uniq)
     nsip=$(dig +short $ns)
     orgs=$(for ip in $nsip; do whois $ip |awk '/OrgName/';done)
     digns=$(dig +shor ns $DOMAIN)
@@ -44,7 +44,7 @@ else
     then
         echo
     elif
-    echo $ns |grep -qiv "inmotion" && echo $orgs |grep -qiv "inmotion"
+    echo $ns |grep -qiv "inmotion\|webhostinghub\|servconfig" && echo $orgs |grep -qiv "inmotion"
     then
         echo
     elif
@@ -103,8 +103,10 @@ else
     else
         echo -e "\t\e[38;5;196mNO! \e[0m"
     fi
-    
-    echo -e "\t$DOMIP"
+    for IP in $DOMIP
+    do
+        echo -e "\t$IP"
+    done
     echo
     # This is to detect if there are more than one A records pointed at different locations.
     for ip in $DOMIP
@@ -133,7 +135,7 @@ else
             dig +short $mx |awk '{print "\tMX IP:\t\t" $0}';
             
             if whois $(dig +short $MXREC)| grep -iq inmotion
-            then echo -e "\t\e[38;5;40memail is pointed at InMotion Hosting.\e[0m";
+            then echo -e "\t\e[38;5;40memail is pointed at IMH.\e[0m";
                 if dig +short txt ${DOMAIN} | grep -iq "spf"
                 then echo -e "\t\e[38;5;40mSPF exists\e[0m"
                 else echo -e "\t\e[38;5;196mNO SPF RECORD! \e[0m"
@@ -145,8 +147,9 @@ else
                 DMARC=$( dig +short txt  _dmarc.${DOMAIN})
                 if echo "$DMARC" | grep -iq "dmarc"
                 then echo -e "\t\e[38;5;40mDMARC exists\e[0m"
-                    if echo "$DMARC" | grep -iqv 'reject\|quarantine'
-                    then echo -e "\t\e[38;5;196mBUT IT\'S SET TO NONE! \e[0m"
+                    if echo "$DMARC" | grep -iq 'reject\|quarantine'
+                    then true
+                    else echo -e "\t\e[38;5;196mBUT IT\'S SET TO NONE! \e[0m"
                     fi
                 else echo -e "\t\e[38;5;196mNO DMARC RECORD! \e[0m"
                 fi
@@ -161,11 +164,13 @@ else
     # Hostname for server
     
     echo "Hostname:";
+    HOST=$(host $DOMIP)
     ## checks if the hostname contains InMotion Hosting or similar domain.
     if echo $WHODOMIP| grep -iq 'inmotion\|servconfig\|webhostinghub'
-    then host $DOMIP| awk '/inmotion|servconfig|webhostinghub/ {print "\t"$5}'
-        host $DOMIP| awk '/inmotion|servconfig|webhostinghub/ {print "\t"$5}'| awk -F"." '{print $1}'
-        
+    then echo "${HOST}"
+        if echo "${HOST}"| grep -iq 'inmotion\|servconfig\|webhostinghub'
+        then echo "${HOST}"| awk '/inmotion|servconfig|webhostinghub/ {print "\t"$5}'| awk -F"." '{print $1}'
+        fi
         ## doesn't run host if the nameservers are cloudflare. If it DOES run host on a cloudflare IP it takes forever, so I added this to speed things up.
         
     elif echo $dignsorgs | grep -iq "cloudflare"
