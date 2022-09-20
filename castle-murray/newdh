@@ -13,7 +13,7 @@ else
     
     ## more definitions
     
-    ns=$(echo "$whoall"| awk -F ": " '/Name Server/ {print $2}'|sort | uniq)
+    ns=$(echo "$whoall"| awk -F ": " '/Name Server/ {print tolower($2)}'| sort | uniq)
     nsip=$(dig +short $ns)
     orgs=$(for ip in $nsip; do whois $ip |awk '/OrgName/';done)
     digns=$(dig +shor ns $DOMAIN)
