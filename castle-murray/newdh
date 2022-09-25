@@ -86,12 +86,17 @@ else
         echo -e "I have no idea what is going on. Do a proper dig."
         echo
     fi
+
     #Registrar
     
     echo "Registrar:";
     echo "${whoall}" | awk -F ":" '/ Registrar:/ {print "\t" $2}'
-    echo "${whoall}" | awk -F":" '/Registrar URL:/  {print "\t" $3}'| sed -e 's#//www.##' -e 's#//##'
+    echo "${whoall}" | awk -F":" '/Registrar URL:/  {print "\t" $3}'| sed -e 's#//www.##' -e 's#//##'| uniq
     echo;
+    #Expiration 
+    echo "Domain expiration:"
+    echo "${whoall}" | awk -F "[:T]" '/Expiry/ {print "\t" $2}'
+    echo
     
     # is the domain on an inmotion IP address?
     
@@ -115,7 +120,29 @@ else
         whois ${ip} | awk -F":" '/OrgName:/ {print "\t" $2}' | sed -e 's/ //g'
     done
     echo
+
+    # Hostname for ip
+	    echo "Hostname:";
+	    HOST=$(dig +short -x ${DOMIP})
+	    ## checks if the hostname contains InMotion Hosting or similar domain.
+	    if echo ${WHODOMIP}| grep -iq 'inmotion\|servconfig\|webhostinghub'
+	    then echo -e "\t${HOST}"
+	        if echo "${HOST}"| grep -iq 'inmotion\|servconfig\|webhostinghub'
+	        then echo "${HOST}"| awk '/inmotion|servconfig|webhostinghub/ {print "\t"$5}'| awk -F"." '{print "\t" $1}'
+	        fi
+	        ## doesn't run host if the nameservers are cloudflare. If it DOES run host on a cloudflare IP it takes forever, so I added this to speed things up.
+	        
+	    elif echo ${dignsorgs} | grep -iq "cloudflare"
+	    then echo "Cloudflare, not able to run host"| awk '{print "\t" $0}';
+	        
+	    else
+	        echo -e "\tHOSTNAME NOT HELPFUL.\n\t${HOST}"
+	        
+	    fi
+	    echo
+
     # MX records
+
     echo "MX records:"
     for mx in "${MXREC}";
     do
@@ -133,7 +160,9 @@ else
 	    mxip=$(dig +short ${mx})
             
             echo "${mxip}" |awk '{print "\tMX IP:\t\t" $0}';
-	    dig +short -x ${mxip} | awk '{print "\tMX PTR:\t\t" $0}'  
+	    #dig +short -x ${mxip} | awk '{print "\tMX PTR:\t\t" $0}'  
+	    echo -e "\tMX PTR:\t\t$(dig +short -x ${mxip})"
+
             if whois $(dig +short ${MXREC})| grep -iq inmotion
             then echo -e "\t\e[38;5;40memail is pointed at IMH.\e[0m";
                 if dig +short txt ${DOMAIN} | grep -iq "spf"
@@ -159,26 +188,4 @@ else
             
         fi;
     done
-    echo
-    
-    # Hostname for server
-    
-    echo "Hostname:";
-    HOST=$(dig +short -x ${DOMIP})
-    ## checks if the hostname contains InMotion Hosting or similar domain.
-    if echo ${WHODOMIP}| grep -iq 'inmotion\|servconfig\|webhostinghub'
-    then echo -e "\t${HOST}"
-        if echo "${HOST}"| grep -iq 'inmotion\|servconfig\|webhostinghub'
-        then echo "${HOST}"| awk '/inmotion|servconfig|webhostinghub/ {print "\t"$5}'| awk -F"." '{print "\t" $1}'
-        fi
-        ## doesn't run host if the nameservers are cloudflare. If it DOES run host on a cloudflare IP it takes forever, so I added this to speed things up.
-        
-    elif echo ${dignsorgs} | grep -iq "cloudflare"
-    then echo "Cloudflare, not able to run host"| awk '{print "\t" $0}';
-        
-    else
-        echo -e "\tHOSTNAME NOT HELPFUL.\n\t${HOST}"
-        
-    fi
-    echo
 fi
