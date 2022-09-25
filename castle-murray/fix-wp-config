@@ -1,0 +1,15 @@
+#! /bin/bash
+fix-wp-config(){
+if grep 'database_name_here' wp-config.php
+then echo "no valid db info to copy"
+else 
+dbname=$(awk -F "'" '/DB_NAME/ {print $4}' wp-config.php)
+dbuser=$(awk -F "'" '/DB_USER/ {print $4}' wp-config.php)
+dbpass=$(awk -F "'" '/DB_PASSWORD/ {print $4}' wp-config.php)
+dbhost=$(awk -F "'" '/DB_HOST/ {print $4}' wp-config.php)
+prefix=$(awk -F "'" '/table_prefix/ {print $2}' wp-config.php)
+mv wp-config.php{,-$(date -I)}
+wp config create --dbname="${dbname}" --dbuser="${dbuser}" --dbpass="${dbpass}" --dbprefix="${prefix}" --dbhost="${dbhost}"
+fi
+}
+fix-wp-config
