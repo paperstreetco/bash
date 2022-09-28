@@ -20,6 +20,13 @@ if ! uapi Mysql list_databases | grep -iq "${name}"
     then cdb_inner
       echo -e "\n\tDatabase and user name: "${name}""
       echo -e "\tpassword: '${pw}'\n"
+if $2 == "-wp" 
+then
+wp_config(){## only enacted if -wp. creates a wp-config file using the information created by the database.
+  mv wp-config.php{,-$(date -I)}
+  wp config create --dbname="${name}" --dbuser="${name}" --dbpass="${pw}"
+wp_config
+fi
     else
       echo -e "\n\tThis user already exists.\n"
   fi
@@ -36,6 +43,9 @@ case $1 in
 ;;
 -r)
    create_database $(head /dev/urandom | tr -dc a-z-0-9 | head -c6)
+;;
+-wp)
+	create_database(wp_config)   
 ;;
 *)
    create_database $1
