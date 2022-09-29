@@ -12,7 +12,7 @@
 ## you can even leave the /blargablarg on the end.
 
 ## First, let's clean up the domain.
-
+sudig(){
 predomain=$1
 stripped=$(echo "${predomain}" | sed "s#https://##" | sed "s#http://##" | sed "s#www.##" | sed s#/.*##)
 
@@ -55,7 +55,7 @@ else
     if dig +short "${subtest}" | grep -E -q '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; then
         if dig +short ns "${subtest}" | grep -E -q '.'; then
             DOMAIN="${subtest}"
-            echo "${stripped} is not a legitimate subdomain."
+            echo "${stripped} Has no A record."
         else
             echo ".... what happened."
             exit
@@ -75,12 +75,12 @@ else
 fi
 
 ## definitions
-whoall=$(whois "${DOMAIN}")
+whoall=$(whois ${DOMAIN})
 ns=$(echo "${whoall}" | awk -F ": " '/Name Server/ {print tolower($2)}' | sort | uniq)
-nsip=$(dig +short "${ns}")
+nsip=$(dig +short ${ns})
 orgs=$(for ip in ${nsip}; do whois "${ip}" | awk '/OrgName/'; done)
-digns=$(dig +short ns "${DOMAIN}")
-dignsip=$(dig +short "${digns}")
+digns=$(dig +short ns ${DOMAIN})
+dignsip=$(dig +short ${digns})
 dignsorgs=$(for dnip in ${dignsip}; do whois ${dnip} | awk '/OrgName/'; done)
 DOMIP=$(dig +short ${DOMAIN})
 MXREC=$(dig +short mx ${DOMAIN} | awk '{print $2}' | sed 's/\.$//')
@@ -119,7 +119,7 @@ fi
 #Registrar
 
 echo -e "\nRegistrar:"
-echo "${whoall}" | awk -F ": " '/ Registrar:/ {print "\t" $2}'
+echo "${whoall}" | awk -F ": " '/Registrar:/ {print "\t" $2}'
 echo "${whoall}" | awk -F ":" '/Registrar URL:/  {print "\t" $3}' | sed -e 's#//www.##' -e 's#//##' | uniq
 #Expiration
 echo -e "\nDomain expiration:"
@@ -156,7 +156,6 @@ echo
 # MX records
 
 echo "MX records:"
-#for mx in ${MXREC}; do
 if echo ${MXREC} | grep -q "SOA"
 then echo -e " \t NO MX RECORD"
     ## checking if domain is using an email service
@@ -201,4 +200,22 @@ else
         echo -e "memail is not pointed at IMH."
     fi
 fi
-#done
+}
+
+case $1 in
+-h|--help|"")
+    echo -e """\nThis script takes a domain as an input
+with or without https:// 
+with or without www. 
+with or without a subdomain. 
+with or without a subdirectory
+
+example : sudig https://dev.testdomain.com/subdir
+
+You can paste straight from the browser address bar. 
+"""
+;;
+*)
+   sudig $1
+;;
+esac
