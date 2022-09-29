@@ -11,38 +11,35 @@
 ## www.
 ## you can even leave the /blargablarg on the end.
 
-
 ## First, let's clean up the domain.
 
 predomain=$1
-stripped=$(echo $predomain | sed "s#https://##" | sed "s#http://##" | sed "s#www.##" |sed s#/.*##)
+stripped=$(echo "${predomain}" | sed "s#https://##" | sed "s#http://##" | sed "s#www.##" | sed s#/.*##)
 
 ## if there IS an a record at the above domain
-if dig +short ${stripped} | egrep -q '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'
-then
+if dig +short "${stripped}" | grep -E -q '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; then
     
     ## the following checks if you've entered a subdomain by checking for NS records
-    if dig +short ns ${stripped} | egrep -q '.' ## this for if you've entered a fqdn
-    then DOMAIN=${stripped}
+    if dig +short ns "${stripped}" | grep -E -q '.'; then ## this for if you've entered a fqdn
+        DOMAIN="${stripped}"
         
         ## if you have entered a subdomain this strips it off to check the domain without it
-    else subtest=$(echo "${stripped}"| sed '/\..*\./s/^[^.]*\.//')
+    else subtest=$(echo "${stripped}" | sed '/\..*\./s/^[^.]*\.//')
         
         ## first by checking that we still get an IP.
-        if dig +short ${subtest} | egrep -q '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'
-        then
+        if dig +short "${subtest}" | grep -E -q '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; then
             ## then it checks for NS records again.
-            if dig +short ns ${subtest} | egrep -q '.'
-            then  DOMAIN=${subtest} ## the FQDN should have them
-                echo -e "${stripped} is a subdomain\nIP:\t$(dig +short ${stripped})"
+            if dig +short ns "${subtest}" | grep -E -q '.'; then
+                DOMAIN="${subtest}" ## the FQDN should have them
+                echo -e "${stripped} is a subdomain\nIP:\t$(dig +short "${stripped}")"
                 
             else ## if not... I don't know what the hell.
-                echo "I'm getting an IP but... it doesn't look like we're getting any nameserver info...  This won't be pretty."
-                DOMAIN=${subtest} ## but we'll try to run it anyway.
+                echo "I\'m getting an IP but... it doesn\'t look like we\'re getting any nameserver info...  This won\'t be pretty."
+                DOMAIN="${subtest}" ## but we'll try to run it anyway.
                 
             fi
         else ## this is for some weird case where somehow it got an IP on the subdomain but NOT after removing said subdomain?
-            echo "something is wrong with this domain... or my code"
+            echo "Something is wrong with this domain... or my code"
             exit
         fi
         
@@ -51,51 +48,48 @@ then
     ## either the subdomain doesn't have an A record or the whole domain doesn't have an A record.
     
     ## IF SUBDOMAIN ISN'T REAL OR HAS NO A RECORD
-else echo "${stripped} is not a legitimate subdomain."
-    subtest=$(echo "${stripped}"| sed '/\..*\./s/^[^.]*\.//')
+else
+    subtest=$(echo "${stripped}" | sed '/\..*\./s/^[^.]*\.//')
     
     ##IF DOMAIN DOES EXST WHEN SUBDOMAIN DOES NOT
-    if dig +short ${subtest} | egrep -q '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'
-    then
-        if dig +short ns ${subtest} | egrep -q '.'
-        then  DOMAIN=${subtest}
-            
-        else echo ".... what happened."
+    if dig +short "${subtest}" | grep -E -q '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'; then
+        if dig +short ns "${subtest}" | grep -E -q '.'; then
+            DOMAIN="${subtest}"
+            echo "${stripped} is not a legitimate subdomain."
+        else
+            echo ".... what happened."
             exit
         fi
         
         ## below we have to cover the edge case where we have an NS record but there isn't an A record propagated.
         ## this does happen
     else
-        if dig +short ns ${subtest} | egrep -q '.'
-        then echo "it looks like ${subtest} is missing an A record"
-            DOMAIN=${subtest}
-        else echo "And ${subtest} isn't registered! either"
+        if dig +short ns "${subtest}" | grep -E -q '.'; then
+            echo "It looks like ${subtest} is missing an A record"
+            DOMAIN="${subtest}"
+        else
+            echo "${subtest} isn't registered!"
             exit
         fi
     fi
 fi
 
-
-
 ## definitions
-whoall=$(whois $DOMAIN)
-
-ns=$(echo "${whoall}"| awk -F ": " '/Name Server/ {print tolower($2)}'| sort | uniq)
-nsip=$(dig +short ${ns})
-orgs=$(for ip in ${nsip}; do whois ${ip} |awk '/OrgName/';done)
-digns=$(dig +shor ns $DOMAIN)
-dignsip=$(dig +short ${digns})
-dignsorgs=$(for dnip in ${dignsip}; do whois ${dnip} |awk '/OrgName/';done)
-DOMIP=$(dig  +short ${DOMAIN})
+whoall=$(whois "${DOMAIN}")
+ns=$(echo "${whoall}" | awk -F ": " '/Name Server/ {print tolower($2)}' | sort | uniq)
+nsip=$(dig +short "${ns}")
+orgs=$(for ip in ${nsip}; do whois "${ip}" | awk '/OrgName/'; done)
+digns=$(dig +short ns "${DOMAIN}")
+dignsip=$(dig +short "${digns}")
+dignsorgs=$(for dnip in ${dignsip}; do whois ${dnip} | awk '/OrgName/'; done)
+DOMIP=$(dig +short ${DOMAIN})
 MXREC=$(dig +short mx ${DOMAIN} | awk '{print $2}' | sed 's/\.$//')
 WHODOMIP=$(whois ${DOMIP})
 
 #meat and potatoes
 
-echo $DOMAIN
+echo "${DOMAIN}"
 echo
-
 
 ## I have found that if the whois is showing a different result from dig ns there is a potential issue at the registrar. Therefore it's a good idea to compare them.
 
@@ -103,156 +97,108 @@ echo "WHOIS NS RESULTS "
 for i in ${ns}; do echo -e "\t${i}"; done
 
 ## this whole section is just to check if the nameservers are custom nameservers on an IMH vps/dedi.
-if
-echo ${ns} |grep -qi "inmotion"
-then
-    echo
-elif
-echo ${ns} |grep -qi "cloudflare" ##
-then
-    echo
-elif
-echo ${ns} |grep -qiv "inmotion\|webhostinghub\|servconfig" && echo ${orgs} |grep -qiv "inmotion"
-then
-    echo
-elif
-echo ${ns} |grep -qiv "inmotion" && echo ${orgs} |grep -qi "inmotion" ## this is the part that checks for custom nameservers. If the nameserver is not imh but the ip of the ns IS imh. custom nameserver. BOOM.
-then
-    echo -e "\tCustom Nameservers on IMH server."
-    echo
-else
-    echo -e "\tI have no idea what is going on. Do a proper dig."
-    echo
+if echo "${ns}" | grep -qi "cloudflare"; then ## 
+    true
+    elif echo "${ns}" | grep -qiv "inmotion\|webhostinghub\|servconfig"; then
+    if echo ${orgs} | grep -qi "inmotion"; then ## this is the part that checks for custom nameservers. If the nameserver is not imh but the ip of the ns IS imh. custom nameserver. BOOM.
+        echo -e "\tCustom Nameservers on IMH server."
+    fi
 fi
-
-
-echo "DIG NS RESULTS"
+echo -e "\nDIG NS RESULTS"
 ## dig ns results
 ## same as the whois results really. more reliable though.
 
-for i in ${digns}; do echo -e "\t${i}"; done;
-if
-echo ${digns} |grep -qi "inmotion"
-then
-    
-    
-    echo
-elif
-echo ${digns} |grep -qi "cloudflare"
-then
-    echo
-elif
-echo ${digns} |grep -qiv "inmotion" && echo ${dignsorgs} |grep -qiv "inmotion"
-then
-    echo
-elif
-echo ${digns} |grep -qiv "inmotion" && echo ${dignsorgs} |grep -qi "inmotion"
-then
-    echo -e "\tCustom Nameservers on IMH Server."
-    echo
-else
-    echo -e "I have no idea what is going on. Do a proper dig."
-    echo
+for i in ${digns}; do echo -e "\t${i}"; done
+if echo "${digns}" | grep -qi "cloudflare"; then
+    true
+    elif(echo ${digns}) | grep -qiv "inmotion\|webhostinghub\|servconfig"; then
+    if echo "${dignsorgs}" | grep -qi "inmotion"; then
+        echo -e "\tCustom Nameservers on IMH Server."
+    fi
 fi
-
 #Registrar
 
-echo "Registrar:";
-echo "${whoall}" | awk -F ":" '/ Registrar:/ {print "\t" $2}'
-echo "${whoall}" | awk -F":" '/Registrar URL:/  {print "\t" $3}'| sed -e 's#//www.##' -e 's#//##'| uniq
-echo;
+echo -e "\nRegistrar:"
+echo "${whoall}" | awk -F ": " '/ Registrar:/ {print "\t" $2}'
+echo "${whoall}" | awk -F ":" '/Registrar URL:/  {print "\t" $3}' | sed -e 's#//www.##' -e 's#//##' | uniq
 #Expiration
-echo "Domain expiration:"
-echo "${whoall}" | awk -F "[:T]" '/Expir/ {print "\t" $2}'| uniq
-echo
+echo -e "\nDomain expiration:"
+echo "${whoall}" | awk -F "[:T]" '/Expir/ {print "\t" $2}' | uniq
 
 # is the domain on an inmotion IP address?
 
-echo "InMotion IP?";
-if
-echo ${WHODOMIP} | grep -i -q inmotion;
-then
-    echo -e "\t\e[38;5;40mYES! \e[0m"
+echo -e "\nInMotion IP?"
+if echo ${WHODOMIP} | grep -i -q inmotion
+then echo -e "\tYES! "
 else
-    echo -e "\t\e[38;5;196mNO! \e[0m"
+    echo -e "\tNO! "
 fi
-for IP in ${DOMIP}
-do
+for IP in ${DOMIP}; do
     echo -e "\t${IP}"
 done
 echo
 # This is to detect if there are more than one A records pointed at different locations.
-for ip in ${DOMIP}
-do
+for ip in ${DOMIP}; do
     echo ${ip}
     whois ${ip} | awk -F":" '/OrgName:/ {print "\t" $2}' | sed -e 's/ //g'
 done
 echo
 
 # Hostname for ip
-echo "Hostname:";
-HOST=$(dig +short -x ${DOMIP})
+echo "Hostname:"
 ## checks if the hostname contains IMH or similar domain.
-if echo ${WHODOMIP}| grep -iq 'inmotion\|servconfig\|webhostinghub'
-then echo -e "\t${HOST}"
-    if echo "${HOST}"| grep -iq 'inmotion\|servconfig\|webhostinghub'
-    then echo "${HOST}"| awk '/inmotion|servconfig|webhostinghub/ {print "\t"$5}'| awk -F"." '{print "\t" $1}'
-    fi
-    ## doesn't run host if the nameservers are cloudflare. If it DOES run host on a cloudflare IP it takes forever, so I added this to speed things up.
-    
-elif echo ${dignsorgs} | grep -iq "cloudflare"
-then echo "Cloudflare, not able to run host"| awk '{print "\t" $0}';
-    
-else
-    echo -e "\tHOSTNAME NOT HELPFUL.\n\t${HOST}"
-    
+if echo "${WHODOMIP}"  | grep -iq "cloudflare"
+then echo "Cloudflare IP! not able to run host" | awk '{print "\t" $0}'
+else echo -e "\t$(dig +short -x "${DOMIP}")"
 fi
 echo
 
 # MX records
 
 echo "MX records:"
-for mx in "${MXREC}";
-do
-    if echo ${mx} | grep -q "SOA";
-    then echo " \t NO MX RECORD";
-        ## checking if domain is using an email service
-    elif echo ${mx} | grep -q -i "google\|outlook\|proton";
+#for mx in ${MXREC}; do
+if echo ${MXREC} | grep -q "SOA"
+then echo -e " \t NO MX RECORD"
+    ## checking if domain is using an email service
+elif echo ${MXREC} | grep -q -i "google\|outlook\|proton"
+then echo -e "Using Email service" | awk '{print "\t" $0}'
+    echo "${MXREC}" | awk '{print "\t\t" $0}'
+    ## checking if the email is pointed to an IMH ip.
+else
+    echo "${MXREC}" | awk '{print "\tMX Domain:\t" $0}'
+    mxip=$(dig +short ${MXREC})
+    echo "${mxip}" | awk '{print "\tMX IP:\t\t" $0}'
+    echo -e "\tMX PTR:\t\t$(dig +short -x ${mxip})"
     
-    then echo -e "\e[38;5;40mUsing Email service\e[0m"|awk '{print "\t" $0}';
-        echo "${mx}" |awk '{print "\t\t" $0}';
-        ## checking if the email is pointed to an IMH ip.
-        
+    ## This part checks for cPanel standard format email validation dns records
+    ## if the MX record is pointed to an IMH IP address.
+    
+    if whois $(dig +short ${MXREC}) | grep -iq inmotion
+    then echo -e "\temail is pointed at IMH."
+        if dig +short txt ${DOMAIN} | grep -iq "spf"
+        then echo -e "\tSPF exists"
+        else
+            echo -e "\tNO SPF RECORD! "
+        fi
+        if dig +short txt default._domainkey.${DOMAIN} | grep -iq "dkim"
+        then echo -e "\tDKIM exists"
+        else
+            echo -e "\tNO DKIM RECORD! "
+        fi
+        DMARC=$(dig +short txt _dmarc.${DOMAIN})
+        if echo "${DMARC}" | grep -iq "dmarc"
+        then echo -e "\tDMARC exists"
+            if echo "${DMARC}" | grep -iq 'reject\|quarantine'
+            then true
+            else
+                echo -e "\tBUT IT\'S SET TO NONE! "
+            fi
+        else
+            echo -e "\tNO DMARC RECORD! "
+        fi
+        ## and if it is not an IMH IP...
     else
-        echo "${mx}"|awk '{print "\tMX Domain:\t" $0}';
-        mxip=$(dig +short ${mx})
-        
-        echo "${mxip}" |awk '{print "\tMX IP:\t\t" $0}';
-        #dig +short -x ${mxip} | awk '{print "\tMX PTR:\t\t" $0}'
-        echo -e "\tMX PTR:\t\t$(dig +short -x ${mxip})"
-        
-        if whois $(dig +short ${MXREC})| grep -iq inmotion
-        then echo -e "\t\e[38;5;40memail is pointed at IMH.\e[0m";
-            if dig +short txt ${DOMAIN} | grep -iq "spf"
-            then echo -e "\t\e[38;5;40mSPF exists\e[0m"
-            else echo -e "\t\e[38;5;196mNO SPF RECORD! \e[0m"
-            fi
-            if dig +short txt  default._domainkey.${DOMAIN} | grep -iq "dkim"
-            then echo -e "\t\e[38;5;40mDKIM exists\e[0m"
-            else echo -e "\t\e[38;5;196mNO DKIM RECORD! \e[0m"
-            fi
-            DMARC=$( dig +short txt  _dmarc.${DOMAIN})
-            if echo "${DMARC}" | grep -iq "dmarc"
-            then echo -e "\t\e[38;5;40mDMARC exists\e[0m"
-                if echo "${DMARC}" | grep -iq 'reject\|quarantine'
-                then true
-                else echo -e "\t\e[38;5;196mBUT IT\'S SET TO NONE! \e[0m"
-                fi
-            else echo -e "\t\e[38;5;196mNO DMARC RECORD! \e[0m"
-            fi
-            ## and if it is not an IMH IP...
-        else echo -e "\t\e[38;5;196memail is not pointed at IMH.\e[0m";
-        fi;
-        
-    fi;
-done
+        echo -e "memail is not pointed at IMH."
+    fi
+fi
+#done
